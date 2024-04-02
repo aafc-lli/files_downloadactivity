@@ -32,8 +32,10 @@ use OCP\IURLGenerator;
 use OCP\IUser;
 use OCP\IUserManager;
 use OCP\L10N\IFactory;
+use OCP\ILogger;
 
-class Provider implements IProvider {
+class Provider implements IProvider
+{
 
 	/** @var IFactory */
 	protected $languageFactory;
@@ -59,8 +61,19 @@ class Provider implements IProvider {
 	/** @var string */
 	protected $lastType = '';
 
+	/** @var ILogger */
+	protected $logger;
+
 	public const SUBJECT_SHARED_FILE_DOWNLOADED = 'shared_file_downloaded';
 	public const SUBJECT_SHARED_FOLDER_DOWNLOADED = 'shared_folder_downloaded';
+	public const SUBJECT_FILE_SELF = 'file_self';
+	public const SUBJECT_FOLDER_SELF = 'folder_self';
+	public const SUBJECT_SHARED_FILE = 'shared_file';
+	public const SUBJECT_SHARED_FOLDER = 'shared_folder';
+	public const SUBJECT_SHARED_FILE_PREVIEW = 'shared_file_preview';
+	public const SUBJECT_SHARED_FILE_CREATE = 'shared_file_create';
+	public const SUBJECT_SHARED_FILE_ICON = 'shared_file_icon';
+	public const SUBJECT_SHARED_OTHER = 'shared_other';
 
 	/**
 	 * @param IFactory $languageFactory
@@ -69,12 +82,14 @@ class Provider implements IProvider {
 	 * @param IUserManager $userManager
 	 * @param IEventMerger $eventMerger
 	 */
-	public function __construct(IFactory $languageFactory, IURLGenerator $url, IManager $activityManager, IUserManager $userManager, IEventMerger $eventMerger) {
+	public function __construct(IFactory $languageFactory, IURLGenerator $url, IManager $activityManager, IUserManager $userManager, IEventMerger $eventMerger, ILogger $logger)
+	{
 		$this->languageFactory = $languageFactory;
 		$this->url = $url;
 		$this->activityManager = $activityManager;
 		$this->userManager = $userManager;
 		$this->eventMerger = $eventMerger;
+		$this->logger = $logger;
 	}
 
 	/**
@@ -85,8 +100,12 @@ class Provider implements IProvider {
 	 * @throws \InvalidArgumentException
 	 * @since 11.0.0
 	 */
-	public function parse($language, IEvent $event, IEvent $previousEvent = null): IEvent {
+	public function parse($language, IEvent $event, IEvent $previousEvent = null): IEvent
+	{
 		if ($event->getApp() !== 'files_downloadactivity') {
+			throw new \InvalidArgumentException();
+		}
+		if ($event->getType() !== 'file_downloaded') {
 			throw new \InvalidArgumentException();
 		}
 
@@ -115,16 +134,27 @@ class Provider implements IProvider {
 	 * @throws \InvalidArgumentException
 	 * @since 11.0.0
 	 */
-	public function parseShortVersion(IEvent $event, IEvent $previousEvent = null): IEvent {
+	public function parseShortVersion(IEvent $event, IEvent $previousEvent = null): IEvent
+	{
 		$parsedParameters = $this->getParsedParameters($event);
 		$params = $event->getSubjectParameters();
 
-		if ($params[2] === 'desktop') {
-			$subject = $this->l->t('Downloaded by {actor} (via desktop)');
-		} elseif ($params[2] === 'mobile') {
-			$subject = $this->l->t('Downloaded by {actor} (via app)');
+		if ($event->getType() === 'file_downloaded') {
+			if ($params[2] === 'desktop') {
+				$subject = $this->l->t('Downloaded by {actor} (via desktop)');
+			} elseif ($params[2] === 'mobile') {
+				$subject = $this->l->t('Downloaded by {actor} (via app)');
+			} else {
+				$subject = $this->l->t('Downloaded by {actor} (via browser)');
+			}
 		} else {
-			$subject = $this->l->t('Downloaded by {actor} (via browser)');
+			if ($params[2] === 'desktop') {
+				$subject = $this->l->t('Accessed by {actor} (via desktop)');
+			} elseif ($params[2] === 'mobile') {
+				$subject = $this->l->t('Accessed by {actor} (via app)');
+			} else {
+				$subject = $this->l->t('Accessed by {actor} (via browser)');
+			}
 		}
 
 		$this->setSubjects($event, $subject, $parsedParameters);
@@ -144,16 +174,37 @@ class Provider implements IProvider {
 	 * @throws \InvalidArgumentException
 	 * @since 11.0.0
 	 */
-	public function parseLongVersion(IEvent $event, IEvent $previousEvent = null): IEvent {
+	public function parseLongVersion(IEvent $event, IEvent $previousEvent = null): IEvent
+	{
 		$parsedParameters = $this->getParsedParameters($event);
 		$params = $event->getSubjectParameters();
 
-		if ($params[2] === 'desktop') {
-			$subject = $this->l->t('Shared file {file} was downloaded by {actor} via the desktop client');
-		} elseif ($params[2] === 'mobile') {
-			$subject = $this->l->t('Shared file {file} was downloaded by {actor} via the mobile app');
+		if ($event->getType() === 'file_downloaded') {
+			if ($event->getAuthor() === $event->getAffectedUser()) {
+				if ($params[2] === 'desktop') {
+					$subject = $this->l->t('You downloaded {file} via the desktop client');
+				} elseif ($params[2] === 'mobile') {
+					$subject = $this->l->t('You downloaded {file} via the mobile app');
+				} else {
+					$subject = $this->l->t('You downloaded {file} via the browser');
+				}
+			} else {
+				if ($params[2] === 'desktop') {
+					$subject = $this->l->t('Shared file {file} was downloaded by {actor} via the desktop client');
+				} elseif ($params[2] === 'mobile') {
+					$subject = $this->l->t('Shared file {file} was downloaded by {actor} via the mobile app');
+				} else {
+					$subject = $this->l->t('Shared file {file} was downloaded by {actor} via the browser');
+				}
+			}
 		} else {
-			$subject = $this->l->t('Shared file {file} was downloaded by {actor} via the browser');
+			if ($params[2] === 'desktop') {
+				$subject = $this->l->t('File {file} accessed by {actor} via the desktop client');
+			} elseif ($params[2] === 'mobile') {
+				$subject = $this->l->t('File {file} accessed by {actor} via the mobile app');
+			} else {
+				$subject = $this->l->t('File {file} accessed by {actor} via the browser');
+			}
 		}
 
 		$this->setSubjects($event, $subject, $parsedParameters);
@@ -177,7 +228,8 @@ class Provider implements IProvider {
 	 * @param array $parameters
 	 * @throws \InvalidArgumentException
 	 */
-	protected function setSubjects(IEvent $event, string $subject, array $parameters): void {
+	protected function setSubjects(IEvent $event, string $subject, array $parameters): void
+	{
 		$placeholders = $replacements = [];
 		foreach ($parameters as $placeholder => $parameter) {
 			$placeholders[] = '{' . $placeholder . '}';
@@ -192,13 +244,23 @@ class Provider implements IProvider {
 			->setRichSubject($subject, $parameters);
 	}
 
-	protected function getParsedParameters(IEvent $event): array {
+	protected function getParsedParameters(IEvent $event): array
+	{
 		$subject = $event->getSubject();
 		$parameters = $event->getSubjectParameters();
 
 		switch ($subject) {
 			case self::SUBJECT_SHARED_FOLDER_DOWNLOADED:
 			case self::SUBJECT_SHARED_FILE_DOWNLOADED:
+			case self::SUBJECT_FILE_SELF;
+			case self::SUBJECT_FOLDER_SELF;
+			case self::SUBJECT_SHARED_FILE:
+			case self::SUBJECT_SHARED_FOLDER:
+			case self::SUBJECT_SHARED_FILE_PREVIEW:
+			case self::SUBJECT_SHARED_FILE_CREATE:
+			case self::SUBJECT_SHARED_FILE_ICON:
+			case self::SUBJECT_SHARED_OTHER:
+
 				$id = key($parameters[0]);
 				return [
 					'file' => $this->generateFileParameter((int) $id, $parameters[0][$id]),
@@ -213,7 +275,8 @@ class Provider implements IProvider {
 	 * @param string $path
 	 * @return array
 	 */
-	protected function generateFileParameter(int $id, string $path): array {
+	protected function generateFileParameter(int $id, string $path): array
+	{
 		return [
 			'type' => 'file',
 			'id' => $id,
@@ -227,7 +290,8 @@ class Provider implements IProvider {
 	 * @param string $uid
 	 * @return array
 	 */
-	protected function generateUserParameter(string $uid): array {
+	protected function generateUserParameter(string $uid): array
+	{
 		if (!isset($this->displayNames[$uid])) {
 			$this->displayNames[$uid] = $this->getDisplayName($uid);
 		}
@@ -243,7 +307,8 @@ class Provider implements IProvider {
 	 * @param string $uid
 	 * @return string
 	 */
-	protected function getDisplayName(string $uid): string {
+	protected function getDisplayName(string $uid): string
+	{
 		$user = $this->userManager->get($uid);
 		if ($user instanceof IUser) {
 			return $user->getDisplayName();
