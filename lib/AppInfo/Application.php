@@ -29,27 +29,31 @@ use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
 use OCP\AppFramework\Bootstrap\IRegistrationContext;
 use OCP\Files\File;
-use OCP\IPreview;
 use OCP\Util;
-use Symfony\Component\EventDispatcher\GenericEvent;
+use OCP\Preview\BeforePreviewFetchedEvent;
+use OCP\EventDispatcher\IEventDispatcher;
 
-class Application extends App implements IBootstrap {
+class Application extends App implements IBootstrap
+{
 	public const APP_ID = 'files_downloadactivity';
 
-	public function __construct() {
+	public function __construct()
+	{
 		parent::__construct(self::APP_ID);
 	}
 
-	public function register(IRegistrationContext $context): void {
+	public function register(IRegistrationContext $context): void
+	{
 	}
 
-	public function boot(IBootContext $context): void {
+	public function boot(IBootContext $context): void
+	{
 		Util::connectHook('OC_Filesystem', 'read', $this, 'listenReadFile');
 
-		$eventDispatcher = $context->getServerContainer()->getEventDispatcher();
+		$eventDispatcher = $this->getContainer()->query(IEventDispatcher::class);
 		$eventDispatcher->addListener(
-			IPreview::EVENT,
-			function (GenericEvent $event) {
+			BeforePreviewFetchedEvent::class,
+			function (BeforePreviewFetchedEvent $event) {
 				$this->listenPreviewFile($event);
 			}
 		);
@@ -58,7 +62,8 @@ class Application extends App implements IBootstrap {
 	/**
 	 * @param array $params
 	 */
-	public function listenReadFile(array $params): void {
+	public function listenReadFile(array $params): void
+	{
 		/** @var Listener $hooks */
 		$hooks = $this->getContainer()->query(Listener::class);
 		$hooks->readFile($params['path']);
@@ -67,22 +72,22 @@ class Application extends App implements IBootstrap {
 	/**
 	 * @param GenericEvent $event
 	 */
-	public function listenPreviewFile(GenericEvent $event): void {
-		$details = $event->getArguments();
-		if ($details['width'] <= 150 && $details['height'] <= 150) {
+	public function listenPreviewFile(BeforePreviewFetchedEvent $event): void
+	{
+		if ($event->getWidth() <= 250 && $event->getHeight() <= 250) {
 			// Ignore mini preview, but we need "big" previews because of the viewer app.
 			return;
 		}
 
 		/** @var File $file */
-		$file = $event->getSubject();
+		$file = $event->getNode();
 
 		if (substr_count($file->getPath(), '/') < 3) {
 			// Invalid path
 			return;
 		}
 
-		[,, $filesApp, $path] = explode('/', $file->getPath(), 4);
+		[, , $filesApp, $path] = explode('/', $file->getPath(), 4);
 
 		if ($filesApp !== 'files') {
 			return;
